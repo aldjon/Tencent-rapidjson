@@ -1,15 +1,15 @@
 // Tencent is pleased to support the open source community by making RapidJSON available.
-// 
-// Copyright (C) 2015 THL A29 Limited, a Tencent company, and Milo Yip. All rights reserved.
+//
+// Copyright (C) 2015 THL A29 Limited, a Tencent company, and Milo Yip.
 //
 // Licensed under the MIT License (the "License"); you may not use this file except
 // in compliance with the License. You may obtain a copy of the License at
 //
 // http://opensource.org/licenses/MIT
 //
-// Unless required by applicable law or agreed to in writing, software distributed 
-// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR 
-// CONDITIONS OF ANY KIND, either express or implied. See the License for the 
+// Unless required by applicable law or agreed to in writing, software distributed
+// under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+// CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
 #include "unittest.h"
@@ -19,12 +19,23 @@
 #include "rapidjson/internal/itoa.h"
 #include "rapidjson/memorystream.h"
 
+#include <limits>
+
 using namespace rapidjson;
 
-#ifdef __GNUC__
 RAPIDJSON_DIAG_PUSH
+#ifdef __GNUC__
 RAPIDJSON_DIAG_OFF(effc++)
 RAPIDJSON_DIAG_OFF(float-equal)
+RAPIDJSON_DIAG_OFF(missing-noreturn)
+#if __GNUC__ >= 7
+RAPIDJSON_DIAG_OFF(dangling-else)
+#endif
+#endif // __GNUC__
+
+#ifdef __clang__
+RAPIDJSON_DIAG_OFF(variadic-macros)
+RAPIDJSON_DIAG_OFF(c++98-compat-pedantic)
 #endif
 
 template<bool expect>
@@ -159,12 +170,12 @@ TEST(Reader, ParseNumber_Integer) {
             u.u |= r();
 
             char buffer[32];
-            if (u.u >= 4294967296ULL) {
+            if (u.u > uint64_t(4294967295u)) {
                 *internal::u64toa(u.u, buffer) = '\0';
                 TEST_INTEGER(ParseUint64Handler, buffer, u.u);
             }
 
-            if (u.i <= -2147483649LL) {
+            if (u.i < -int64_t(2147483648u)) {
                 *internal::i64toa(u.i, buffer) = '\0';
                 TEST_INTEGER(ParseInt64Handler, buffer, u.i);
             }
@@ -196,6 +207,7 @@ static void TestParseDouble() {
 
     TEST_DOUBLE(fullPrecision, "0.0", 0.0);
     TEST_DOUBLE(fullPrecision, "-0.0", -0.0); // For checking issue #289
+    TEST_DOUBLE(fullPrecision, "0e100", 0.0); // For checking issue #1249
     TEST_DOUBLE(fullPrecision, "1.0", 1.0);
     TEST_DOUBLE(fullPrecision, "-1.0", -1.0);
     TEST_DOUBLE(fullPrecision, "1.5", 1.5);
@@ -222,7 +234,7 @@ static void TestParseDouble() {
     TEST_DOUBLE(fullPrecision, "1e-10000", 0.0);                                    // must underflow
     TEST_DOUBLE(fullPrecision, "18446744073709551616", 18446744073709551616.0);     // 2^64 (max of uint64_t + 1, force to use double)
     TEST_DOUBLE(fullPrecision, "-9223372036854775809", -9223372036854775809.0);     // -2^63 - 1(min of int64_t + 1, force to use double)
-    TEST_DOUBLE(fullPrecision, "0.9868011474609375", 0.9868011474609375);           // https://github.com/miloyip/rapidjson/issues/120
+    TEST_DOUBLE(fullPrecision, "0.9868011474609375", 0.9868011474609375);           // https://github.com/Tencent/rapidjson/issues/120
     TEST_DOUBLE(fullPrecision, "123e34", 123e34);                                   // Fast Path Cases In Disguise
     TEST_DOUBLE(fullPrecision, "45913141877270640000.0", 45913141877270640000.0);
     TEST_DOUBLE(fullPrecision, "2.2250738585072011e-308", 2.2250738585072011e-308); // http://www.exploringbinary.com/php-hangs-on-numeric-value-2-2250738585072011e-308/
@@ -231,16 +243,18 @@ static void TestParseDouble() {
     TEST_DOUBLE(fullPrecision, "1e-214748363", 0.0);                                  // Maximum supported negative exponent
     TEST_DOUBLE(fullPrecision, "1e-214748364", 0.0);
     TEST_DOUBLE(fullPrecision, "1e-21474836311", 0.0);
+    TEST_DOUBLE(fullPrecision, "1.00000000001e-2147483638", 0.0);
     TEST_DOUBLE(fullPrecision, "0.017976931348623157e+310", 1.7976931348623157e+308); // Max double in another form
+    TEST_DOUBLE(fullPrecision, "128.74836467836484838364836483643636483648e-336", 0.0); // Issue #1251
 
     // Since
-    // abs((2^-1022 - 2^-1074) - 2.2250738585072012e-308) = 3.109754131239141401123495768877590405345064751974375599... ¡Á 10^-324
-    // abs((2^-1022) - 2.2250738585072012e-308) = 1.830902327173324040642192159804623318305533274168872044... ¡Á 10 ^ -324
+    // abs((2^-1022 - 2^-1074) - 2.2250738585072012e-308) = 3.109754131239141401123495768877590405345064751974375599... x 10^-324
+    // abs((2^-1022) - 2.2250738585072012e-308) = 1.830902327173324040642192159804623318305533274168872044... x 10 ^ -324
     // So 2.2250738585072012e-308 should round to 2^-1022 = 2.2250738585072014e-308
     TEST_DOUBLE(fullPrecision, "2.2250738585072012e-308", 2.2250738585072014e-308); // http://www.exploringbinary.com/java-hangs-when-converting-2-2250738585072012e-308/
 
     // More closer to normal/subnormal boundary
-    // boundary = 2^-1022 - 2^-1075 = 2.225073858507201136057409796709131975934819546351645648... ¡Á 10^-308
+    // boundary = 2^-1022 - 2^-1075 = 2.225073858507201136057409796709131975934819546351645648... x 10^-308
     TEST_DOUBLE(fullPrecision, "2.22507385850720113605740979670913197593481954635164564e-308", 2.2250738585072009e-308);
     TEST_DOUBLE(fullPrecision, "2.22507385850720113605740979670913197593481954635164565e-308", 2.2250738585072014e-308);
 
@@ -290,7 +304,7 @@ static void TestParseDouble() {
     }
 
     // Cover trimming
-    TEST_DOUBLE(fullPrecision, 
+    TEST_DOUBLE(fullPrecision,
 "2.22507385850720113605740979670913197593481954635164564802342610972482222202107694551652952390813508"
 "7914149158913039621106870086438694594645527657207407820621743379988141063267329253552286881372149012"
 "9811224514518898490572223072852551331557550159143974763979834118019993239625482890171070818506906306"
@@ -299,7 +313,7 @@ static void TestParseDouble() {
 "5722898802581825451803257070188608721131280795122334262883686223215037756666225039825343359745688844"
 "2390026549819838548794829220689472168983109969836584681402285424333066033985088644580400103493397042"
 "7567186443383770486037861622771738545623065874679014086723327636718751234567890123456789012345678901"
-"e-308", 
+"e-308",
     2.2250738585072014e-308);
 
     {
@@ -365,6 +379,208 @@ static void TestParseDouble() {
             d = d.Value() * 0.5;
         }
     }
+
+    // Issue 1249
+    TEST_DOUBLE(fullPrecision, "0e100", 0.0);
+
+    // Issue 1251
+    TEST_DOUBLE(fullPrecision, "128.74836467836484838364836483643636483648e-336", 0.0);
+
+    // Issue 1256
+    TEST_DOUBLE(fullPrecision,
+        "6223372036854775296.1701512723685473547372536854755293372036854685477"
+        "529752233737201701512337200972013723685473123372036872036854236854737"
+        "247372368372367752975258547752975254729752547372368737201701512354737"
+        "83723677529752585477247372368372368547354737253685475529752",
+        6223372036854775808.0);
+
+#if 0
+    // Test (length + exponent) overflow
+    TEST_DOUBLE(fullPrecision, "0e+2147483647", 0.0);
+    TEST_DOUBLE(fullPrecision, "0e-2147483648", 0.0);
+    TEST_DOUBLE(fullPrecision, "1e-2147483648", 0.0);
+    TEST_DOUBLE(fullPrecision, "0e+9223372036854775807", 0.0);
+    TEST_DOUBLE(fullPrecision, "0e-9223372036854775808", 0.0);
+#endif
+
+    if (fullPrecision)
+    {
+        TEST_DOUBLE(fullPrecision, "1e-325", 0.0);
+        TEST_DOUBLE(fullPrecision, "1e-324", 0.0);
+        TEST_DOUBLE(fullPrecision, "2e-324", 0.0);
+        TEST_DOUBLE(fullPrecision, "2.4703282292062327e-324", 0.0);
+        TEST_DOUBLE(fullPrecision, "2.4703282292062328e-324", 5e-324);
+        TEST_DOUBLE(fullPrecision, "2.48e-324",5e-324);
+        TEST_DOUBLE(fullPrecision, "2.5e-324", 5e-324);
+
+        // Slightly above max-normal
+        TEST_DOUBLE(fullPrecision, "1.7976931348623158e+308", 1.7976931348623158e+308);
+
+        TEST_DOUBLE(fullPrecision,
+            "17976931348623157081452742373170435679807056752584499659891747680315726"
+            "07800285387605895586327668781715404589535143824642343213268894641827684"
+            "67546703537516986049910576551282076245490090389328944075868508455133942"
+            "30458323690322294816580855933212334827479782620414472316873817718091929"
+            "9881250404026184124858368",
+            (std::numeric_limits<double>::max)());
+
+        TEST_DOUBLE(fullPrecision,
+            "243546080556034731077856379609316893158278902575447060151047"
+            "212703405344938119816206067372775299130836050315842578309818"
+            "316450894337978612745889730079163798234256495613858256849283"
+            "467066859489192118352020514036083287319232435355752493038825"
+            "828481044358810649108367633313557305310641892225870327827273"
+            "41408256.000000",
+            2.4354608055603473e+307);
+        // 9007199254740991 * 2^971 (max normal)
+        TEST_DOUBLE(fullPrecision,
+            "1.797693134862315708145274237317043567980705675258449965989174768031572607800285"
+            "38760589558632766878171540458953514382464234321326889464182768467546703537516986"
+            "04991057655128207624549009038932894407586850845513394230458323690322294816580855"
+            "9332123348274797826204144723168738177180919299881250404026184124858368e+308",
+            1.797693134862315708e+308 //        0x1.fffffffffffffp1023
+            );
+#if 0
+        // TODO:
+        // Should work at least in full-precision mode...
+        TEST_DOUBLE(fullPrecision,
+            "0.00000000000000000000000000000000000000000000000000000000000"
+            "0000000000000000000000000000000000000000000000000000000000000"
+            "0000000000000000000000000000000000000000000000000000000000000"
+            "0000000000000000000000000000000000000000000000000000000000000"
+            "0000000000000000000000000000000000000000000000000000000000000"
+            "0000000000000000000024703282292062327208828439643411068618252"
+            "9901307162382212792841250337753635104375932649918180817996189"
+            "8982823477228588654633283551779698981993873980053909390631503"
+            "5659515570226392290858392449105184435931802849936536152500319"
+            "3704576782492193656236698636584807570015857692699037063119282"
+            "7955855133292783433840935197801553124659726357957462276646527"
+            "2827220056374006485499977096599470454020828166226237857393450"
+            "7363390079677619305775067401763246736009689513405355374585166"
+            "6113422376667860416215968046191446729184030053005753084904876"
+            "5391711386591646239524912623653881879636239373280423891018672"
+            "3484976682350898633885879256283027559956575244555072551893136"
+            "9083625477918694866799496832404970582102851318545139621383772"
+            "2826145437693412532098591327667236328125",
+            0.0);
+#endif
+        // 9007199254740991 * 2^-1074 = (2^53 - 1) * 2^-1074
+        TEST_DOUBLE(fullPrecision,
+            "4.450147717014402272114819593418263951869639092703291296046852219449644444042153"
+            "89103305904781627017582829831782607924221374017287738918929105531441481564124348"
+            "67599762821265346585071045737627442980259622449029037796981144446145705102663115"
+            "10031828794952795966823603998647925096578034214163701381261333311989876551545144"
+            "03152612538132666529513060001849177663286607555958373922409899478075565940981010"
+            "21612198814605258742579179000071675999344145086087205681577915435923018910334964"
+            "86942061405218289243144579760516365090360651414037721744226256159024466852576737"
+            "24464300755133324500796506867194913776884780053099639677097589658441378944337966"
+            "21993967316936280457084866613206797017728916080020698679408551343728867675409720"
+            "757232455434770912461317493580281734466552734375e-308",
+            4.450147717014402272e-308 //        0x1.fffffffffffffp-1022
+            );
+        // 9007199254740990 * 2^-1074
+        TEST_DOUBLE(fullPrecision,
+            "4.450147717014401778049173752171719775300846224481918930987049605124880018456471"
+            "39035755177760751831052846195619008686241717547743167145836439860405887584484471"
+            "19639655002484083577939142623582164522087943959208000909794783876158397872163051"
+            "22622675229968408654350206725478309956546318828765627255022767720818849892988457"
+            "26333908582101604036318532842699932130356061901518261174396928478121372742040102"
+            "17446565569357687263889031732270082446958029584739170416643195242132750803227473"
+            "16608838720742955671061336566907126801014814608027120593609275183716632624844904"
+            "31985250929886016737037234388448352929102742708402644340627409931664203093081360"
+            "70794835812045179006047003875039546061891526346421705014598610179523165038319441"
+            "51446491086954182492263498716056346893310546875e-308",
+            4.450147717014401778e-308 //        0x1.ffffffffffffep-1022
+            );
+        // half way between the two numbers above.
+        // round to nearest even.
+        TEST_DOUBLE(fullPrecision,
+            "4.450147717014402025081996672794991863585242658592605113516950912287262231249312"
+            "64069530541271189424317838013700808305231545782515453032382772695923684574304409"
+            "93619708911874715081505094180604803751173783204118519353387964161152051487413083"
+            "16327252012460602310586905362063117526562176521464664318142050516404363222266800"
+            "64743260560117135282915796422274554896821334728738317548403413978098469341510556"
+            "19529382191981473003234105366170879223151087335413188049110555339027884856781219"
+            "01775450062980622457102958163711745945687733011032421168917765671370549738710820"
+            "78224775842509670618916870627821633352993761380751142008862499795052791018709663"
+            "46394401564490729731565935244123171539810221213221201847003580761626016356864581"
+            "1358486831521563686919762403704226016998291015625e-308",
+            4.450147717014401778e-308 //        0x1.ffffffffffffep-1022
+            );
+        TEST_DOUBLE(fullPrecision,
+            "4.450147717014402025081996672794991863585242658592605113516950912287262231249312"
+            "64069530541271189424317838013700808305231545782515453032382772695923684574304409"
+            "93619708911874715081505094180604803751173783204118519353387964161152051487413083"
+            "16327252012460602310586905362063117526562176521464664318142050516404363222266800"
+            "64743260560117135282915796422274554896821334728738317548403413978098469341510556"
+            "19529382191981473003234105366170879223151087335413188049110555339027884856781219"
+            "01775450062980622457102958163711745945687733011032421168917765671370549738710820"
+            "78224775842509670618916870627821633352993761380751142008862499795052791018709663"
+            "46394401564490729731565935244123171539810221213221201847003580761626016356864581"
+            "13584868315215636869197624037042260169982910156250000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000e-308",
+            4.450147717014401778e-308 //        0x1.ffffffffffffep-1022
+            );
+#if 0
+        // ... round up
+        // TODO:
+        // Should work at least in full-precision mode...
+        TEST_DOUBLE(fullPrecision,
+            "4.450147717014402025081996672794991863585242658592605113516950912287262231249312"
+            "64069530541271189424317838013700808305231545782515453032382772695923684574304409"
+            "93619708911874715081505094180604803751173783204118519353387964161152051487413083"
+            "16327252012460602310586905362063117526562176521464664318142050516404363222266800"
+            "64743260560117135282915796422274554896821334728738317548403413978098469341510556"
+            "19529382191981473003234105366170879223151087335413188049110555339027884856781219"
+            "01775450062980622457102958163711745945687733011032421168917765671370549738710820"
+            "78224775842509670618916870627821633352993761380751142008862499795052791018709663"
+            "46394401564490729731565935244123171539810221213221201847003580761626016356864581"
+            "13584868315215636869197624037042260169982910156250000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000001e-308",
+            4.450147717014402272e-308 //        0x1.fffffffffffffp-1022
+            );
+#endif
+        // ... round down
+        TEST_DOUBLE(fullPrecision,
+            "4.450147717014402025081996672794991863585242658592605113516950912287262231249312"
+            "64069530541271189424317838013700808305231545782515453032382772695923684574304409"
+            "93619708911874715081505094180604803751173783204118519353387964161152051487413083"
+            "16327252012460602310586905362063117526562176521464664318142050516404363222266800"
+            "64743260560117135282915796422274554896821334728738317548403413978098469341510556"
+            "19529382191981473003234105366170879223151087335413188049110555339027884856781219"
+            "01775450062980622457102958163711745945687733011032421168917765671370549738710820"
+            "78224775842509670618916870627821633352993761380751142008862499795052791018709663"
+            "46394401564490729731565935244123171539810221213221201847003580761626016356864581"
+            "13584868315215636869197624037042260169982910156249999999999999999999999999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999e-308",
+            4.450147717014401778e-308 //        0x1.ffffffffffffep-1022
+            );
+        // Slightly below half way between max-normal and infinity.
+        // Should round down.
+        TEST_DOUBLE(fullPrecision,
+            "1.797693134862315807937289714053034150799341327100378269361737789804449682927647"
+            "50946649017977587207096330286416692887910946555547851940402630657488671505820681"
+            "90890200070838367627385484581771153176447573027006985557136695962284291481986083"
+            "49364752927190741684443655107043427115596995080930428801779041744977919999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999"
+            "99999999999999999999999999999999999999999999999999999999999999999999999999999999e+308",
+            1.797693134862315708e+308 //        0x1.fffffffffffffp1023
+            );
+    }
+
 #undef TEST_DOUBLE
 }
 
@@ -403,23 +619,27 @@ TEST(Reader, ParseNumber_NormalPrecisionError) {
         a = h.actual_;
         uint64_t bias1 = e.ToBias();
         uint64_t bias2 = a.ToBias();
-        double ulp = bias1 >= bias2 ? bias1 - bias2 : bias2 - bias1;
-        ulpMax = std::max(ulpMax, ulp);
+        double ulp = static_cast<double>(bias1 >= bias2 ? bias1 - bias2 : bias2 - bias1);
+        ulpMax = (std::max)(ulpMax, ulp);
         ulpSum += ulp;
     }
     printf("ULP Average = %g, Max = %g \n", ulpSum / count, ulpMax);
 }
 
-TEST(Reader, ParseNumber_Error) {
-#define TEST_NUMBER_ERROR(errorCode, str) \
+template<bool fullPrecision>
+static void TestParseNumberError() {
+#define TEST_NUMBER_ERROR(errorCode, str, errorOffset, streamPos) \
     { \
-        char buffer[1001]; \
+        char buffer[2048]; \
+        ASSERT_LT(std::strlen(str), 2048u); \
         sprintf(buffer, "%s", str); \
         InsituStringStream s(buffer); \
         BaseReaderHandler<> h; \
         Reader reader; \
-        EXPECT_FALSE(reader.Parse(s, h)); \
+        EXPECT_FALSE(reader.Parse<fullPrecision ? kParseFullPrecisionFlag : 0>(s, h)); \
         EXPECT_EQ(errorCode, reader.GetParseErrorCode());\
+        EXPECT_EQ(errorOffset, reader.GetErrorOffset());\
+        EXPECT_EQ(streamPos, s.Tell());\
     }
 
     // Number too big to be stored in double.
@@ -429,39 +649,127 @@ TEST(Reader, ParseNumber_Error) {
         for (int i = 1; i < 310; i++)
             n1e309[i] = '0';
         n1e309[310] = '\0';
-        TEST_NUMBER_ERROR(kParseErrorNumberTooBig, n1e309);
+        TEST_NUMBER_ERROR(kParseErrorNumberTooBig, n1e309, 0u, 310u);
     }
-    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "1e309");
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "1e309", 0u, 5u);
 
     // Miss fraction part in number.
-    TEST_NUMBER_ERROR(kParseErrorNumberMissFraction, "1.");
-    TEST_NUMBER_ERROR(kParseErrorNumberMissFraction, "1.a");
+    TEST_NUMBER_ERROR(kParseErrorNumberMissFraction, "1.", 2u, 2u);
+    TEST_NUMBER_ERROR(kParseErrorNumberMissFraction, "1.a", 2u, 2u);
 
     // Miss exponent in number.
-    TEST_NUMBER_ERROR(kParseErrorNumberMissExponent, "1e");
-    TEST_NUMBER_ERROR(kParseErrorNumberMissExponent, "1e_");
+    TEST_NUMBER_ERROR(kParseErrorNumberMissExponent, "1e", 2u, 2u);
+    TEST_NUMBER_ERROR(kParseErrorNumberMissExponent, "1e_", 2u, 2u);
+
+    // Issue 849
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "1.8e308", 0u, 7u);
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "5e308", 0u, 5u);
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "1e309", 0u, 5u);
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "1.0e310", 0u, 7u);
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "1.00e310", 0u, 8u);
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "-1.8e308", 0u, 8u);
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "-1e309", 0u, 6u);
+
+    // Issue 1253
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "2e308", 0u, 5u);
+
+    // Issue 1259
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig,
+        "88474320368547737236837236775298547354737253685475547552933720368546854775297525"
+        "29337203685468547770151233720097201372368547312337203687203685423685123372036872"
+        "03685473724737236837236775297525854775297525472975254737236873720170151235473783"
+        "7236737247372368772473723683723456789012E66", 0u, 283u);
+
+#if 0
+    // Test (length + exponent) overflow
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "1e+2147483647", 0u, 13u);
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "1e+9223372036854775807", 0u, 22u);
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "1e+10000", 0u, 8u);
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig, "1e+50000", 0u, 8u);
+#endif
+
+    // 9007199254740992 * 2^971 ("infinity")
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig,
+        "1.797693134862315907729305190789024733617976978942306572734300811577326758055009"
+        "63132708477322407536021120113879871393357658789768814416622492847430639474124377"
+        "76789342486548527630221960124609411945308295208500576883815068234246288147391311"
+        "0540827237163350510684586298239947245938479716304835356329624224137216e+308", 0u, 315u);
+
+    // TODO:
+    // These tests (currently) fail in normal-precision mode
+    if (fullPrecision)
+    {
+        // Half way between max-normal and infinity
+        // Should round to infinity in nearest-even mode.
+        TEST_NUMBER_ERROR(kParseErrorNumberTooBig,
+            "1.797693134862315807937289714053034150799341327100378269361737789804449682927647"
+            "50946649017977587207096330286416692887910946555547851940402630657488671505820681"
+            "90890200070838367627385484581771153176447573027006985557136695962284291481986083"
+            "49364752927190741684443655107043427115596995080930428801779041744977920000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000e+308", 0u, 1125u);
+        // ...round up
+        TEST_NUMBER_ERROR(kParseErrorNumberTooBig,
+            "1.797693134862315807937289714053034150799341327100378269361737789804449682927647"
+            "50946649017977587207096330286416692887910946555547851940402630657488671505820681"
+            "90890200070838367627385484581771153176447573027006985557136695962284291481986083"
+            "49364752927190741684443655107043427115596995080930428801779041744977920000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000001e+308", 0u, 1205u);
+    }
+
+    TEST_NUMBER_ERROR(kParseErrorNumberTooBig,
+        "10000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        "00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        "0000000000000000000000000000000000000000000000000000000000000000000001", 0u, 310u);
 
 #undef TEST_NUMBER_ERROR
+}
+
+TEST(Reader, ParseNumberError_NormalPrecisionDouble) {
+    TestParseNumberError<false>();
+}
+
+TEST(Reader, ParseNumberError_FullPrecisionDouble) {
+    TestParseNumberError<true>();
 }
 
 template <typename Encoding>
 struct ParseStringHandler : BaseReaderHandler<Encoding, ParseStringHandler<Encoding> > {
     ParseStringHandler() : str_(0), length_(0), copy_() {}
     ~ParseStringHandler() { EXPECT_TRUE(str_ != 0); if (copy_) free(const_cast<typename Encoding::Ch*>(str_)); }
-    
+
     ParseStringHandler(const ParseStringHandler&);
     ParseStringHandler& operator=(const ParseStringHandler&);
 
     bool Default() { ADD_FAILURE(); return false; }
-    bool String(const typename Encoding::Ch* str, size_t length, bool copy) { 
+    bool String(const typename Encoding::Ch* str, size_t length, bool copy) {
         EXPECT_EQ(0, str_);
         if (copy) {
-            str_ = (typename Encoding::Ch*)malloc((length + 1) * sizeof(typename Encoding::Ch));
+            str_ = static_cast<typename Encoding::Ch*>(malloc((length + 1) * sizeof(typename Encoding::Ch)));
             memcpy(const_cast<typename Encoding::Ch*>(str_), str, (length + 1) * sizeof(typename Encoding::Ch));
         }
         else
             str_ = str;
-        length_ = length; 
+        length_ = length;
         copy_ = copy;
         return true;
     }
@@ -490,7 +798,7 @@ TEST(Reader, ParseString) {
         EXPECT_EQ(StrLen(e), h2.length_); \
     }
 
-    // String constant L"\xXX" can only specify character code in bytes, which is not endianness-neutral. 
+    // String constant L"\xXX" can only specify character code in bytes, which is not endianness-neutral.
     // And old compiler does not support u"" and U"" string literal. So here specify string literal by array of Ch.
     // In addition, GCC 4.8 generates -Wnarrowing warnings when character code >= 128 are assigned to signed integer types.
     // Therefore, utype is added for declaring unsigned array, and then cast it to Encoding::Ch.
@@ -597,8 +905,16 @@ ParseErrorCode TestString(const typename Encoding::Ch* str) {
 }
 
 TEST(Reader, ParseString_Error) {
-#define TEST_STRING_ERROR(errorCode, str)\
-        EXPECT_EQ(errorCode, TestString<UTF8<> >(str))
+#define TEST_STRING_ERROR(errorCode, str, errorOffset, streamPos)\
+{\
+    GenericStringStream<UTF8<> > s(str);\
+    BaseReaderHandler<UTF8<> > h;\
+    GenericReader<UTF8<> , UTF8<> > reader;\
+    reader.Parse<kParseValidateEncodingFlag>(s, h);\
+    EXPECT_EQ(errorCode, reader.GetParseErrorCode());\
+    EXPECT_EQ(errorOffset, reader.GetErrorOffset());\
+    EXPECT_EQ(streamPos, s.Tell());\
+}
 
 #define ARRAY(...) { __VA_ARGS__ }
 #define TEST_STRINGENCODING_ERROR(Encoding, TargetEncoding, utype, array) \
@@ -615,35 +931,38 @@ TEST(Reader, ParseString_Error) {
     }
 
     // Invalid escape character in string.
-    TEST_STRING_ERROR(kParseErrorStringEscapeInvalid, "[\"\\a\"]");
+    TEST_STRING_ERROR(kParseErrorStringEscapeInvalid, "[\"\\a\"]", 2u, 3u);
 
     // Incorrect hex digit after \\u escape in string.
-    TEST_STRING_ERROR(kParseErrorStringUnicodeEscapeInvalidHex, "[\"\\uABCG\"]");
+    TEST_STRING_ERROR(kParseErrorStringUnicodeEscapeInvalidHex, "[\"\\uABCG\"]", 2u, 7u);
 
     // Quotation in \\u escape in string (Issue #288)
-    TEST_STRING_ERROR(kParseErrorStringUnicodeEscapeInvalidHex, "[\"\\uaaa\"]");
-    TEST_STRING_ERROR(kParseErrorStringUnicodeEscapeInvalidHex, "[\"\\uD800\\uFFF\"]");
+    TEST_STRING_ERROR(kParseErrorStringUnicodeEscapeInvalidHex, "[\"\\uaaa\"]", 2u, 7u);
+    TEST_STRING_ERROR(kParseErrorStringUnicodeEscapeInvalidHex, "[\"\\uD800\\uFFF\"]", 2u, 13u);
 
     // The surrogate pair in string is invalid.
-    TEST_STRING_ERROR(kParseErrorStringUnicodeSurrogateInvalid, "[\"\\uD800X\"]");
-    TEST_STRING_ERROR(kParseErrorStringUnicodeSurrogateInvalid, "[\"\\uD800\\uFFFF\"]");
+    TEST_STRING_ERROR(kParseErrorStringUnicodeSurrogateInvalid, "[\"\\uD800X\"]", 2u, 8u);
+    TEST_STRING_ERROR(kParseErrorStringUnicodeSurrogateInvalid, "[\"\\uD800\\uFFFF\"]", 2u, 14u);
+
+    // Single low surrogate pair in string is invalid.
+    TEST_STRING_ERROR(kParseErrorStringUnicodeSurrogateInvalid, "[\"\\udc4d\"]", 2u, 8u);
 
     // Missing a closing quotation mark in string.
-    TEST_STRING_ERROR(kParseErrorStringMissQuotationMark, "[\"Test]");
+    TEST_STRING_ERROR(kParseErrorStringMissQuotationMark, "[\"Test]", 7u, 7u);
 
     // http://www.cl.cam.ac.uk/~mgk25/ucs/examples/UTF-8-test.txt
 
-    // 3  Malformed sequences 
+    // 3  Malformed sequences
 
     // 3.1 Unexpected continuation bytes
     {
          char e[] = { '[', '\"', 0, '\"', ']', '\0' };
          for (unsigned char c = 0x80u; c <= 0xBFu; c++) {
-            e[2] = c;
+            e[2] = static_cast<char>(c);
             ParseErrorCode error = TestString<UTF8<> >(e);
             EXPECT_EQ(kParseErrorStringInvalidEncoding, error);
             if (error != kParseErrorStringInvalidEncoding)
-                std::cout << (unsigned)(unsigned char)c << std::endl;
+                std::cout << static_cast<unsigned>(c) << std::endl;
          }
     }
 
@@ -651,24 +970,35 @@ TEST(Reader, ParseString_Error) {
     {
         char e[] = { '[', '\"', 0, ' ', '\"', ']', '\0' };
         for (unsigned c = 0xC0u; c <= 0xFFu; c++) {
-            e[2] = (char)c;
-            TEST_STRING_ERROR(kParseErrorStringInvalidEncoding, e);
+            e[2] = static_cast<char>(c);
+            unsigned streamPos;
+            if (c <= 0xC1u)
+                streamPos = 3; // 0xC0 - 0xC1
+            else if (c <= 0xDFu)
+                streamPos = 4; // 0xC2 - 0xDF
+            else if (c <= 0xEFu)
+                streamPos = 5; // 0xE0 - 0xEF
+            else if (c <= 0xF4u)
+                streamPos = 6; // 0xF0 - 0xF4
+            else
+                streamPos = 3; // 0xF5 - 0xFF
+            TEST_STRING_ERROR(kParseErrorStringInvalidEncoding, e, 2u, streamPos);
         }
     }
 
-    // 4  Overlong sequences 
+    // 4  Overlong sequences
 
     // 4.1  Examples of an overlong ASCII character
     TEST_STRINGENCODING_ERROR(UTF8<>, UTF16<>, unsigned char, ARRAY('[', '\"', 0xC0u, 0xAFu, '\"', ']', '\0'));
     TEST_STRINGENCODING_ERROR(UTF8<>, UTF16<>, unsigned char, ARRAY('[', '\"', 0xE0u, 0x80u, 0xAFu, '\"', ']', '\0'));
     TEST_STRINGENCODING_ERROR(UTF8<>, UTF16<>, unsigned char, ARRAY('[', '\"', 0xF0u, 0x80u, 0x80u, 0xAFu, '\"', ']', '\0'));
 
-    // 4.2  Maximum overlong sequences 
+    // 4.2  Maximum overlong sequences
     TEST_STRINGENCODING_ERROR(UTF8<>, UTF16<>, unsigned char, ARRAY('[', '\"', 0xC1u, 0xBFu, '\"', ']', '\0'));
     TEST_STRINGENCODING_ERROR(UTF8<>, UTF16<>, unsigned char, ARRAY('[', '\"', 0xE0u, 0x9Fu, 0xBFu, '\"', ']', '\0'));
     TEST_STRINGENCODING_ERROR(UTF8<>, UTF16<>, unsigned char, ARRAY('[', '\"', 0xF0u, 0x8Fu, 0xBFu, 0xBFu, '\"', ']', '\0'));
 
-    // 4.3  Overlong representation of the NUL character 
+    // 4.3  Overlong representation of the NUL character
     TEST_STRINGENCODING_ERROR(UTF8<>, UTF16<>, unsigned char, ARRAY('[', '\"', 0xC0u, 0x80u, '\"', ']', '\0'));
     TEST_STRINGENCODING_ERROR(UTF8<>, UTF16<>, unsigned char, ARRAY('[', '\"', 0xE0u, 0x80u, 0x80u, '\"', ']', '\0'));
     TEST_STRINGENCODING_ERROR(UTF8<>, UTF16<>, unsigned char, ARRAY('[', '\"', 0xF0u, 0x80u, 0x80u, 0x80u, '\"', ']', '\0'));
@@ -692,7 +1022,9 @@ TEST(Reader, ParseString_Error) {
     TEST_STRINGENCODING_ERROR(UTF32<>, UTF8<>, unsigned, ARRAY('[', '\"', 0x110000, '\"', ']', '\0'));
 
     // Malform ASCII sequence
-    TEST_STRINGENCODING_ERROR(ASCII<>, UTF8<>, char, ARRAY('[', '\"', char(0x80), '\"', ']', '\0'));
+    TEST_STRINGENCODING_ERROR(ASCII<>, UTF8<>, char, ARRAY('[', '\"', char(0x80u), '\"', ']', '\0'));
+    TEST_STRINGENCODING_ERROR(ASCII<>, UTF8<>, char, ARRAY('[', '\"', char(0x01u), '\"', ']', '\0'));
+    TEST_STRINGENCODING_ERROR(ASCII<>, UTF8<>, char, ARRAY('[', '\"', char(0x1Cu), '\"', ']', '\0'));
 
 #undef ARRAY
 #undef TEST_STRINGARRAY_ERROR
@@ -731,8 +1063,9 @@ TEST(Reader, ParseArray) {
 }
 
 TEST(Reader, ParseArray_Error) {
-#define TEST_ARRAY_ERROR(errorCode, str) \
+#define TEST_ARRAY_ERROR(errorCode, str, errorOffset) \
     { \
+        unsigned streamPos = errorOffset; \
         char buffer[1001]; \
         strncpy(buffer, str, 1000); \
         InsituStringStream s(buffer); \
@@ -740,12 +1073,18 @@ TEST(Reader, ParseArray_Error) {
         GenericReader<UTF8<>, UTF8<>, CrtAllocator> reader; \
         EXPECT_FALSE(reader.Parse(s, h)); \
         EXPECT_EQ(errorCode, reader.GetParseErrorCode());\
+        EXPECT_EQ(errorOffset, reader.GetErrorOffset());\
+        EXPECT_EQ(streamPos, s.Tell());\
     }
 
     // Missing a comma or ']' after an array element.
-    TEST_ARRAY_ERROR(kParseErrorArrayMissCommaOrSquareBracket, "[1");
-    TEST_ARRAY_ERROR(kParseErrorArrayMissCommaOrSquareBracket, "[1}");
-    TEST_ARRAY_ERROR(kParseErrorArrayMissCommaOrSquareBracket, "[1 2]");
+    TEST_ARRAY_ERROR(kParseErrorArrayMissCommaOrSquareBracket, "[1", 2u);
+    TEST_ARRAY_ERROR(kParseErrorArrayMissCommaOrSquareBracket, "[1}", 2u);
+    TEST_ARRAY_ERROR(kParseErrorArrayMissCommaOrSquareBracket, "[1 2]", 3u);
+
+    // Array cannot have a trailing comma (without kParseTrailingCommasFlag);
+    // a value must follow a comma
+    TEST_ARRAY_ERROR(kParseErrorValueInvalid, "[1,]", 3u);
 
 #undef TEST_ARRAY_ERROR
 }
@@ -755,14 +1094,14 @@ struct ParseObjectHandler : BaseReaderHandler<UTF8<>, ParseObjectHandler> {
 
     bool Default() { ADD_FAILURE(); return false; }
     bool Null() { EXPECT_EQ(8u, step_); step_++; return true; }
-    bool Bool(bool b) { 
+    bool Bool(bool b) {
         switch(step_) {
             case 4: EXPECT_TRUE(b); step_++; return true;
             case 6: EXPECT_FALSE(b); step_++; return true;
             default: ADD_FAILURE(); return false;
         }
     }
-    bool Int(int i) { 
+    bool Int(int i) {
         switch(step_) {
             case 10: EXPECT_EQ(123, i); step_++; return true;
             case 15: EXPECT_EQ(1, i); step_++; return true;
@@ -771,9 +1110,9 @@ struct ParseObjectHandler : BaseReaderHandler<UTF8<>, ParseObjectHandler> {
             default: ADD_FAILURE(); return false;
         }
     }
-    bool Uint(unsigned i) { return Int(i); }
+    bool Uint(unsigned i) { return Int(static_cast<int>(i)); }
     bool Double(double d) { EXPECT_EQ(12u, step_); EXPECT_DOUBLE_EQ(3.1416, d); step_++; return true; }
-    bool String(const char* str, size_t, bool) { 
+    bool String(const char* str, size_t, bool) {
         switch(step_) {
             case 1: EXPECT_STREQ("hello", str); step_++; return true;
             case 2: EXPECT_STREQ("world", str); step_++; return true;
@@ -892,8 +1231,9 @@ TEST(Reader, ParseInsituIterative_MultipleRoot) {
     TestInsituMultipleRoot<kParseIterativeFlag | kParseStopWhenDoneFlag>();
 }
 
-#define TEST_ERROR(errorCode, str) \
+#define TEST_ERROR(errorCode, str, errorOffset) \
     { \
+        unsigned streamPos = errorOffset; \
         char buffer[1001]; \
         strncpy(buffer, str, 1000); \
         InsituStringStream s(buffer); \
@@ -901,48 +1241,54 @@ TEST(Reader, ParseInsituIterative_MultipleRoot) {
         Reader reader; \
         EXPECT_FALSE(reader.Parse(s, h)); \
         EXPECT_EQ(errorCode, reader.GetParseErrorCode());\
+        EXPECT_EQ(errorOffset, reader.GetErrorOffset());\
+        EXPECT_EQ(streamPos, s.Tell());\
     }
 
 TEST(Reader, ParseDocument_Error) {
     // The document is empty.
-    TEST_ERROR(kParseErrorDocumentEmpty, "");
-    TEST_ERROR(kParseErrorDocumentEmpty, " ");
-    TEST_ERROR(kParseErrorDocumentEmpty, " \n");
+    TEST_ERROR(kParseErrorDocumentEmpty, "", 0u);
+    TEST_ERROR(kParseErrorDocumentEmpty, " ", 1u);
+    TEST_ERROR(kParseErrorDocumentEmpty, " \n", 2u);
 
     // The document root must not follow by other values.
-    TEST_ERROR(kParseErrorDocumentRootNotSingular, "[] 0");
-    TEST_ERROR(kParseErrorDocumentRootNotSingular, "{} 0");
-    TEST_ERROR(kParseErrorDocumentRootNotSingular, "null []");
-    TEST_ERROR(kParseErrorDocumentRootNotSingular, "0 {}");
+    TEST_ERROR(kParseErrorDocumentRootNotSingular, "[] 0", 3u);
+    TEST_ERROR(kParseErrorDocumentRootNotSingular, "{} 0", 3u);
+    TEST_ERROR(kParseErrorDocumentRootNotSingular, "null []", 5u);
+    TEST_ERROR(kParseErrorDocumentRootNotSingular, "0 {}", 2u);
 }
 
 TEST(Reader, ParseValue_Error) {
     // Invalid value.
-    TEST_ERROR(kParseErrorValueInvalid, "nulL");
-    TEST_ERROR(kParseErrorValueInvalid, "truE");
-    TEST_ERROR(kParseErrorValueInvalid, "falsE");
-    TEST_ERROR(kParseErrorValueInvalid, "a]");
-    TEST_ERROR(kParseErrorValueInvalid, ".1");
+    TEST_ERROR(kParseErrorValueInvalid, "nulL", 3u);
+    TEST_ERROR(kParseErrorValueInvalid, "truE", 3u);
+    TEST_ERROR(kParseErrorValueInvalid, "falsE", 4u);
+    TEST_ERROR(kParseErrorValueInvalid, "a]", 0u);
+    TEST_ERROR(kParseErrorValueInvalid, ".1", 0u);
 }
 
 TEST(Reader, ParseObject_Error) {
     // Missing a name for object member.
-    TEST_ERROR(kParseErrorObjectMissName, "{1}");
-    TEST_ERROR(kParseErrorObjectMissName, "{:1}");
-    TEST_ERROR(kParseErrorObjectMissName, "{null:1}");
-    TEST_ERROR(kParseErrorObjectMissName, "{true:1}");
-    TEST_ERROR(kParseErrorObjectMissName, "{false:1}");
-    TEST_ERROR(kParseErrorObjectMissName, "{1:1}");
-    TEST_ERROR(kParseErrorObjectMissName, "{[]:1}");
-    TEST_ERROR(kParseErrorObjectMissName, "{{}:1}");
-    TEST_ERROR(kParseErrorObjectMissName, "{xyz:1}");
+    TEST_ERROR(kParseErrorObjectMissName, "{1}", 1u);
+    TEST_ERROR(kParseErrorObjectMissName, "{:1}", 1u);
+    TEST_ERROR(kParseErrorObjectMissName, "{null:1}", 1u);
+    TEST_ERROR(kParseErrorObjectMissName, "{true:1}", 1u);
+    TEST_ERROR(kParseErrorObjectMissName, "{false:1}", 1u);
+    TEST_ERROR(kParseErrorObjectMissName, "{1:1}", 1u);
+    TEST_ERROR(kParseErrorObjectMissName, "{[]:1}", 1u);
+    TEST_ERROR(kParseErrorObjectMissName, "{{}:1}", 1u);
+    TEST_ERROR(kParseErrorObjectMissName, "{xyz:1}", 1u);
 
     // Missing a colon after a name of object member.
-    TEST_ERROR(kParseErrorObjectMissColon, "{\"a\" 1}");
-    TEST_ERROR(kParseErrorObjectMissColon, "{\"a\",1}");
+    TEST_ERROR(kParseErrorObjectMissColon, "{\"a\" 1}", 5u);
+    TEST_ERROR(kParseErrorObjectMissColon, "{\"a\",1}", 4u);
 
     // Must be a comma or '}' after an object member
-    TEST_ERROR(kParseErrorObjectMissCommaOrCurlyBracket, "{\"a\":1]");
+    TEST_ERROR(kParseErrorObjectMissCommaOrCurlyBracket, "{\"a\":1]", 6u);
+
+    // Object cannot have a trailing comma (without kParseTrailingCommasFlag);
+    // an object member name must follow a comma
+    TEST_ERROR(kParseErrorObjectMissName, "{\"a\":1,}", 7u);
 
     // This tests that MemoryStream is checking the length in Peek().
     {
@@ -1003,7 +1349,7 @@ struct StreamTraits<CustomStringStream<Encoding> > {
 };
 
 } // namespace rapidjson
-#endif 
+#endif
 
 TEST(Reader, CustomStringStream) {
     const char* json = "{ \"hello\" : \"world\", \"t\" : true , \"f\" : false, \"n\": null, \"i\":123, \"pi\": 3.1416, \"a\":[1, 2, 3] } ";
@@ -1024,15 +1370,15 @@ public:
 
     Ch Peek() const {
         int c = is_.peek();
-        return c == std::char_traits<char>::eof() ? '\0' : (Ch)c;
+        return c == std::char_traits<char>::eof() ? '\0' : static_cast<Ch>(c);
     }
 
-    Ch Take() { 
+    Ch Take() {
         int c = is_.get();
-        return c == std::char_traits<char>::eof() ? '\0' : (Ch)c;
+        return c == std::char_traits<char>::eof() ? '\0' : static_cast<Ch>(c);
     }
 
-    size_t Tell() const { return (size_t)is_.tellg(); }
+    size_t Tell() const { return static_cast<size_t>(is_.tellg()); }
 
     Ch* PutBegin() { assert(false); return 0; }
     void Put(Ch) { assert(false); }
@@ -1046,6 +1392,36 @@ private:
     std::istream& is_;
 };
 
+class WIStreamWrapper {
+public:
+  typedef wchar_t Ch;
+
+  WIStreamWrapper(std::wistream& is) : is_(is) {}
+
+  Ch Peek() const {
+    unsigned c = is_.peek();
+    return c == std::char_traits<wchar_t>::eof() ? Ch('\0') : static_cast<Ch>(c);
+  }
+
+  Ch Take() {
+    unsigned c = is_.get();
+    return c == std::char_traits<wchar_t>::eof() ? Ch('\0') : static_cast<Ch>(c);
+  }
+
+  size_t Tell() const { return static_cast<size_t>(is_.tellg()); }
+
+  Ch* PutBegin() { assert(false); return 0; }
+  void Put(Ch) { assert(false); }
+  void Flush() { assert(false); }
+  size_t PutEnd(Ch*) { assert(false); return 0; }
+
+private:
+  WIStreamWrapper(const WIStreamWrapper&);
+  WIStreamWrapper& operator=(const WIStreamWrapper&);
+
+  std::wistream& is_;
+};
+
 TEST(Reader, Parse_IStreamWrapper_StringStream) {
     const char* json = "[1,2,3,4]";
 
@@ -1055,13 +1431,14 @@ TEST(Reader, Parse_IStreamWrapper_StringStream) {
     Reader reader;
     ParseArrayHandler<4> h;
     reader.Parse(is, h);
-    EXPECT_FALSE(reader.HasParseError());   
+    EXPECT_FALSE(reader.HasParseError());
 }
 
 // Test iterative parsing.
 
 #define TESTERRORHANDLING(text, errorCode, offset)\
 {\
+    unsigned streamPos = offset; \
     StringStream json(text); \
     BaseReaderHandler<> handler; \
     Reader reader; \
@@ -1069,6 +1446,7 @@ TEST(Reader, Parse_IStreamWrapper_StringStream) {
     EXPECT_TRUE(reader.HasParseError()); \
     EXPECT_EQ(errorCode, reader.GetParseErrorCode()); \
     EXPECT_EQ(offset, reader.GetErrorOffset()); \
+    EXPECT_EQ(streamPos, json.Tell()); \
 }
 
 TEST(Reader, IterativeParsing_ErrorHandling) {
@@ -1082,10 +1460,20 @@ TEST(Reader, IterativeParsing_ErrorHandling) {
     TESTERRORHANDLING("{\"a\"}", kParseErrorObjectMissColon, 4u);
     TESTERRORHANDLING("{\"a\": 1", kParseErrorObjectMissCommaOrCurlyBracket, 7u);
     TESTERRORHANDLING("[1 2 3]", kParseErrorArrayMissCommaOrSquareBracket, 3u);
-    TESTERRORHANDLING("{\"a: 1", kParseErrorStringMissQuotationMark, 5u);
+    TESTERRORHANDLING("{\"a: 1", kParseErrorStringMissQuotationMark, 6u);
+    TESTERRORHANDLING("{\"a\":}", kParseErrorValueInvalid, 5u);
+    TESTERRORHANDLING("{\"a\":]", kParseErrorValueInvalid, 5u);
+    TESTERRORHANDLING("[1,2,}", kParseErrorValueInvalid, 5u);
+    TESTERRORHANDLING("[}]", kParseErrorValueInvalid, 1u);
+    TESTERRORHANDLING("[,]", kParseErrorValueInvalid, 1u);
+    TESTERRORHANDLING("[1,,]", kParseErrorValueInvalid, 3u);
+
+    // Trailing commas are not allowed without kParseTrailingCommasFlag
+    TESTERRORHANDLING("{\"a\": 1,}", kParseErrorObjectMissName, 8u);
+    TESTERRORHANDLING("[1,2,3,]", kParseErrorValueInvalid, 7u);
 
     // Any JSON value can be a valid root element in RFC7159.
-    TESTERRORHANDLING("\"ab", kParseErrorStringMissQuotationMark, 2u);
+    TESTERRORHANDLING("\"ab", kParseErrorStringMissQuotationMark, 3u);
     TESTERRORHANDLING("truE", kParseErrorValueInvalid, 3u);
     TESTERRORHANDLING("False", kParseErrorValueInvalid, 0u);
     TESTERRORHANDLING("true, false", kParseErrorDocumentRootNotSingular, 4u);
@@ -1099,22 +1487,22 @@ template<typename Encoding = UTF8<> >
 struct IterativeParsingReaderHandler {
     typedef typename Encoding::Ch Ch;
 
-    const static int LOG_NULL = -1;
-    const static int LOG_BOOL = -2;
-    const static int LOG_INT = -3;
-    const static int LOG_UINT = -4;
-    const static int LOG_INT64 = -5;
-    const static int LOG_UINT64 = -6;
-    const static int LOG_DOUBLE = -7;
-    const static int LOG_STRING = -8;
-    const static int LOG_STARTOBJECT = -9;
-    const static int LOG_KEY = -10;
-    const static int LOG_ENDOBJECT = -11;
-    const static int LOG_STARTARRAY = -12;
-    const static int LOG_ENDARRAY = -13;
+    const static uint32_t LOG_NULL        = 0x10000000;
+    const static uint32_t LOG_BOOL        = 0x20000000;
+    const static uint32_t LOG_INT         = 0x30000000;
+    const static uint32_t LOG_UINT        = 0x40000000;
+    const static uint32_t LOG_INT64       = 0x50000000;
+    const static uint32_t LOG_UINT64      = 0x60000000;
+    const static uint32_t LOG_DOUBLE      = 0x70000000;
+    const static uint32_t LOG_STRING      = 0x80000000;
+    const static uint32_t LOG_STARTOBJECT = 0x90000000;
+    const static uint32_t LOG_KEY         = 0xA0000000;
+    const static uint32_t LOG_ENDOBJECT   = 0xB0000000;
+    const static uint32_t LOG_STARTARRAY  = 0xC0000000;
+    const static uint32_t LOG_ENDARRAY    = 0xD0000000;
 
     const static size_t LogCapacity = 256;
-    int Logs[LogCapacity];
+    uint32_t Logs[LogCapacity];
     size_t LogCount;
 
     IterativeParsingReaderHandler() : LogCount(0) {
@@ -1134,16 +1522,18 @@ struct IterativeParsingReaderHandler {
 
     bool Double(double) { RAPIDJSON_ASSERT(LogCount < LogCapacity); Logs[LogCount++] = LOG_DOUBLE; return true; }
 
+    bool RawNumber(const Ch*, SizeType, bool) { RAPIDJSON_ASSERT(LogCount < LogCapacity); Logs[LogCount++] = LOG_STRING; return true; }
+
     bool String(const Ch*, SizeType, bool) { RAPIDJSON_ASSERT(LogCount < LogCapacity); Logs[LogCount++] = LOG_STRING; return true; }
 
     bool StartObject() { RAPIDJSON_ASSERT(LogCount < LogCapacity); Logs[LogCount++] = LOG_STARTOBJECT; return true; }
 
     bool Key (const Ch*, SizeType, bool) { RAPIDJSON_ASSERT(LogCount < LogCapacity); Logs[LogCount++] = LOG_KEY; return true; }
-	
+
     bool EndObject(SizeType c) {
         RAPIDJSON_ASSERT(LogCount < LogCapacity);
-        Logs[LogCount++] = LOG_ENDOBJECT;
-        Logs[LogCount++] = (int)c;
+        RAPIDJSON_ASSERT((static_cast<uint32_t>(c) & 0xF0000000) == 0);
+        Logs[LogCount++] = LOG_ENDOBJECT | static_cast<uint32_t>(c);
         return true;
     }
 
@@ -1151,8 +1541,8 @@ struct IterativeParsingReaderHandler {
 
     bool EndArray(SizeType c) {
         RAPIDJSON_ASSERT(LogCount < LogCapacity);
-        Logs[LogCount++] = LOG_ENDARRAY;
-        Logs[LogCount++] = (int)c;
+        RAPIDJSON_ASSERT((static_cast<uint32_t>(c) & 0xF0000000) == 0);
+        Logs[LogCount++] = LOG_ENDARRAY | static_cast<uint32_t>(c);
         return true;
     }
 };
@@ -1168,7 +1558,7 @@ TEST(Reader, IterativeParsing_General) {
         EXPECT_FALSE(r.IsError());
         EXPECT_FALSE(reader.HasParseError());
 
-        int e[] = {
+        uint32_t e[] = {
             handler.LOG_STARTARRAY,
             handler.LOG_INT,
             handler.LOG_STARTOBJECT,
@@ -1176,14 +1566,14 @@ TEST(Reader, IterativeParsing_General) {
             handler.LOG_STARTARRAY,
             handler.LOG_INT,
             handler.LOG_INT,
-            handler.LOG_ENDARRAY, 2,
-            handler.LOG_ENDOBJECT, 1,
+            handler.LOG_ENDARRAY | 2,
+            handler.LOG_ENDOBJECT | 1,
             handler.LOG_NULL,
             handler.LOG_BOOL,
             handler.LOG_BOOL,
             handler.LOG_STRING,
             handler.LOG_DOUBLE,
-            handler.LOG_ENDARRAY, 7
+            handler.LOG_ENDARRAY | 7
         };
 
         EXPECT_EQ(sizeof(e) / sizeof(int), handler.LogCount);
@@ -1205,20 +1595,20 @@ TEST(Reader, IterativeParsing_Count) {
         EXPECT_FALSE(r.IsError());
         EXPECT_FALSE(reader.HasParseError());
 
-        int e[] = {
+        uint32_t e[] = {
             handler.LOG_STARTARRAY,
             handler.LOG_STARTOBJECT,
-            handler.LOG_ENDOBJECT, 0,
+            handler.LOG_ENDOBJECT | 0,
             handler.LOG_STARTOBJECT,
             handler.LOG_KEY,
             handler.LOG_INT,
-            handler.LOG_ENDOBJECT, 1,
+            handler.LOG_ENDOBJECT | 1,
             handler.LOG_STARTARRAY,
             handler.LOG_INT,
-            handler.LOG_ENDARRAY, 1,
+            handler.LOG_ENDARRAY | 1,
             handler.LOG_STARTARRAY,
-            handler.LOG_ENDARRAY, 0,
-            handler.LOG_ENDARRAY, 4
+            handler.LOG_ENDARRAY | 0,
+            handler.LOG_ENDARRAY | 4
         };
 
         EXPECT_EQ(sizeof(e) / sizeof(int), handler.LogCount);
@@ -1226,6 +1616,51 @@ TEST(Reader, IterativeParsing_Count) {
         for (size_t i = 0; i < handler.LogCount; ++i) {
             EXPECT_EQ(e[i], handler.Logs[i]) << "i = " << i;
         }
+    }
+}
+
+TEST(Reader, IterativePullParsing_General) {
+    {
+        IterativeParsingReaderHandler<> handler;
+        uint32_t e[] = {
+            handler.LOG_STARTARRAY,
+            handler.LOG_INT,
+            handler.LOG_STARTOBJECT,
+            handler.LOG_KEY,
+            handler.LOG_STARTARRAY,
+            handler.LOG_INT,
+            handler.LOG_INT,
+            handler.LOG_ENDARRAY | 2,
+            handler.LOG_ENDOBJECT | 1,
+            handler.LOG_NULL,
+            handler.LOG_BOOL,
+            handler.LOG_BOOL,
+            handler.LOG_STRING,
+            handler.LOG_DOUBLE,
+            handler.LOG_ENDARRAY | 7
+        };
+
+        StringStream is("[1, {\"k\": [1, 2]}, null, false, true, \"string\", 1.2]");
+        Reader reader;
+
+        reader.IterativeParseInit();
+        while (!reader.IterativeParseComplete()) {
+            size_t oldLogCount = handler.LogCount;
+            EXPECT_TRUE(oldLogCount < sizeof(e) / sizeof(int)) << "overrun";
+
+            EXPECT_TRUE(reader.IterativeParseNext<kParseDefaultFlags>(is, handler)) << "parse fail";
+            EXPECT_EQ(handler.LogCount, oldLogCount + 1) << "handler should be invoked exactly once each time";
+            EXPECT_EQ(e[oldLogCount], handler.Logs[oldLogCount]) << "wrong event returned";
+        }
+
+        EXPECT_FALSE(reader.HasParseError());
+        EXPECT_EQ(sizeof(e) / sizeof(int), handler.LogCount) << "handler invoked wrong number of times";
+
+        // The handler should not be invoked when the JSON has been fully read, but it should not fail
+        size_t oldLogCount = handler.LogCount;
+        EXPECT_TRUE(reader.IterativeParseNext<kParseDefaultFlags>(is, handler)) << "parse-next past complete is allowed";
+        EXPECT_EQ(handler.LogCount, oldLogCount) << "parse-next past complete should not invoke handler";
+        EXPECT_FALSE(reader.HasParseError()) << "parse-next past complete should not generate parse error";
     }
 }
 
@@ -1313,12 +1748,13 @@ struct TerminateHandler {
     bool Int64(int64_t) { return e != 4; }
     bool Uint64(uint64_t) { return e != 5;  }
     bool Double(double) { return e != 6; }
-    bool String(const char*, SizeType, bool) { return e != 7; }
-    bool StartObject() { return e != 8; }
-    bool Key(const char*, SizeType, bool)  { return e != 9; }
-    bool EndObject(SizeType) { return e != 10; }
-    bool StartArray() { return e != 11; }
-    bool EndArray(SizeType) { return e != 12; }
+    bool RawNumber(const char*, SizeType, bool) { return e != 7; }
+    bool String(const char*, SizeType, bool) { return e != 8; }
+    bool StartObject() { return e != 9; }
+    bool Key(const char*, SizeType, bool)  { return e != 10; }
+    bool EndObject(SizeType) { return e != 11; }
+    bool StartArray() { return e != 12; }
+    bool EndArray(SizeType) { return e != 13; }
 };
 
 #define TEST_TERMINATION(e, json)\
@@ -1339,14 +1775,15 @@ TEST(Reader, ParseTerminationByHandler) {
     TEST_TERMINATION(4, "[-1234567890123456789");
     TEST_TERMINATION(5, "[1234567890123456789");
     TEST_TERMINATION(6, "[0.5]");
-    TEST_TERMINATION(7, "[\"a\"");
-    TEST_TERMINATION(8, "[{");
-    TEST_TERMINATION(9, "[{\"a\"");
-    TEST_TERMINATION(10, "[{}");
-    TEST_TERMINATION(10, "[{\"a\":1}"); // non-empty object
-    TEST_TERMINATION(11, "{\"a\":[");
-    TEST_TERMINATION(12, "{\"a\":[]");
-    TEST_TERMINATION(12, "{\"a\":[1]"); // non-empty array
+    // RawNumber() is never called
+    TEST_TERMINATION(8, "[\"a\"");
+    TEST_TERMINATION(9, "[{");
+    TEST_TERMINATION(10, "[{\"a\"");
+    TEST_TERMINATION(11, "[{}");
+    TEST_TERMINATION(11, "[{\"a\":1}"); // non-empty object
+    TEST_TERMINATION(12, "{\"a\":[");
+    TEST_TERMINATION(13, "{\"a\":[]");
+    TEST_TERMINATION(13, "{\"a\":[1]"); // non-empty array
 }
 
 TEST(Reader, ParseComments) {
@@ -1388,7 +1825,7 @@ TEST(Reader, ParseEmptyOnelineComment) {
 }
 
 TEST(Reader, ParseMultipleCommentsInARow) {
-    const char* json = 
+    const char* json =
     "{/* first comment *//* second */\n"
     "/* third */ /*fourth*/// last one\n"
     "\"hello\" : \"world\", \"t\" : true, \"f\" : false, \"n\": null, \"i\":123, \"pi\": 3.1416, \"a\":[1, 2, 3] }";
@@ -1452,6 +1889,482 @@ TEST(Reader, IncompleteMultilineComment) {
     EXPECT_EQ(kParseErrorUnspecificSyntaxError, reader.GetParseErrorCode());
 }
 
-#ifdef __GNUC__
+TEST(Reader, IncompleteMultilineComment2) {
+    const char* json = "{\"hello\" : \"world\" /* *\0 */}";
+
+    StringStream s(json);
+    ParseObjectHandler h;
+    Reader reader;
+    EXPECT_FALSE(reader.Parse<kParseCommentsFlag>(s, h));
+    EXPECT_EQ(kParseErrorUnspecificSyntaxError, reader.GetParseErrorCode());
+}
+
+TEST(Reader, UnrecognizedComment) {
+    const char* json = "{\"hello\" : \"world\" /! }";
+
+    StringStream s(json);
+    ParseObjectHandler h;
+    Reader reader;
+    EXPECT_FALSE(reader.Parse<kParseCommentsFlag>(s, h));
+    EXPECT_EQ(kParseErrorUnspecificSyntaxError, reader.GetParseErrorCode());
+}
+
+struct NumbersAsStringsHandler {
+    bool Null() { return true; }
+    bool Bool(bool) { return true; }
+    bool Int(int) { return true; }
+    bool Uint(unsigned) { return true; }
+    bool Int64(int64_t) { return true; }
+    bool Uint64(uint64_t) { return true;  }
+    bool Double(double) { return true; }
+    // 'str' is not null-terminated
+    bool RawNumber(const char* str, SizeType length, bool) {
+        EXPECT_TRUE(str != 0);
+        EXPECT_TRUE(expected_len_ == length);
+        EXPECT_TRUE(strncmp(str, expected_, length) == 0);
+        return true;
+    }
+    bool String(const char*, SizeType, bool) { return true; }
+    bool StartObject() { return true; }
+    bool Key(const char*, SizeType, bool) { return true; }
+    bool EndObject(SizeType) { return true; }
+    bool StartArray() { return true; }
+    bool EndArray(SizeType) { return true; }
+
+    NumbersAsStringsHandler(const char* expected)
+        : expected_(expected)
+        , expected_len_(strlen(expected)) {}
+
+    const char* expected_;
+    size_t expected_len_;
+};
+
+TEST(Reader, NumbersAsStrings) {
+    {
+        const char* json = "{ \"pi\": 3.1416 } ";
+        StringStream s(json);
+        NumbersAsStringsHandler h("3.1416");
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<kParseNumbersAsStringsFlag>(s, h));
+    }
+    {
+        char* json = StrDup("{ \"pi\": 3.1416 } ");
+        InsituStringStream s(json);
+        NumbersAsStringsHandler h("3.1416");
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<kParseInsituFlag|kParseNumbersAsStringsFlag>(s, h));
+        free(json);
+    }
+    {
+        const char* json = "{ \"gigabyte\": 1.0e9 } ";
+        StringStream s(json);
+        NumbersAsStringsHandler h("1.0e9");
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<kParseNumbersAsStringsFlag>(s, h));
+    }
+    {
+        char* json = StrDup("{ \"gigabyte\": 1.0e9 } ");
+        InsituStringStream s(json);
+        NumbersAsStringsHandler h("1.0e9");
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<kParseInsituFlag|kParseNumbersAsStringsFlag>(s, h));
+        free(json);
+    }
+    {
+        const char* json = "{ \"pi\": 314.159e-2 } ";
+        StringStream s(json);
+        NumbersAsStringsHandler h("314.159e-2");
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<kParseNumbersAsStringsFlag>(s, h));
+    }
+    {
+        char* json = StrDup("{ \"gigabyte\": 314.159e-2 } ");
+        InsituStringStream s(json);
+        NumbersAsStringsHandler h("314.159e-2");
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<kParseInsituFlag|kParseNumbersAsStringsFlag>(s, h));
+        free(json);
+    }
+    {
+        const char* json = "{ \"negative\": -1.54321 } ";
+        StringStream s(json);
+        NumbersAsStringsHandler h("-1.54321");
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<kParseNumbersAsStringsFlag>(s, h));
+    }
+    {
+        char* json = StrDup("{ \"negative\": -1.54321 } ");
+        InsituStringStream s(json);
+        NumbersAsStringsHandler h("-1.54321");
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<kParseInsituFlag|kParseNumbersAsStringsFlag>(s, h));
+        free(json);
+    }
+    {
+        const char* json = "{ \"pi\": 314.159e-2 } ";
+        std::stringstream ss(json);
+        IStreamWrapper s(ss);
+        NumbersAsStringsHandler h("314.159e-2");
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<kParseNumbersAsStringsFlag>(s, h));
+    }
+    {
+        char n1e319[321];   // '1' followed by 319 '0'
+        n1e319[0] = '1';
+        for (int i = 1; i < 320; i++)
+            n1e319[i] = '0';
+        n1e319[320] = '\0';
+        StringStream s(n1e319);
+        NumbersAsStringsHandler h(n1e319);
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<kParseNumbersAsStringsFlag>(s, h));
+    }
+}
+
+struct NumbersAsStringsHandlerWChar_t {
+  bool Null() { return true; }
+  bool Bool(bool) { return true; }
+  bool Int(int) { return true; }
+  bool Uint(unsigned) { return true; }
+  bool Int64(int64_t) { return true; }
+  bool Uint64(uint64_t) { return true; }
+  bool Double(double) { return true; }
+  // 'str' is not null-terminated
+  bool RawNumber(const wchar_t* str, SizeType length, bool) {
+    EXPECT_TRUE(str != 0);
+    EXPECT_TRUE(expected_len_ == length);
+    EXPECT_TRUE(wcsncmp(str, expected_, length) == 0);
+    return true;
+  }
+  bool String(const wchar_t*, SizeType, bool) { return true; }
+  bool StartObject() { return true; }
+  bool Key(const wchar_t*, SizeType, bool) { return true; }
+  bool EndObject(SizeType) { return true; }
+  bool StartArray() { return true; }
+  bool EndArray(SizeType) { return true; }
+
+  NumbersAsStringsHandlerWChar_t(const wchar_t* expected)
+    : expected_(expected)
+    , expected_len_(wcslen(expected)) {}
+
+  const wchar_t* expected_;
+  size_t expected_len_;
+};
+
+TEST(Reader, NumbersAsStringsWChar_t) {
+  {
+    const wchar_t* json = L"{ \"pi\": 3.1416 } ";
+    GenericStringStream<UTF16<> > s(json);
+    NumbersAsStringsHandlerWChar_t h(L"3.1416");
+    GenericReader<UTF16<>, UTF16<> > reader;
+    EXPECT_TRUE(reader.Parse<kParseNumbersAsStringsFlag>(s, h));
+  }
+  {
+    wchar_t* json = StrDup(L"{ \"pi\": 3.1416 } ");
+    GenericInsituStringStream<UTF16<> > s(json);
+    NumbersAsStringsHandlerWChar_t h(L"3.1416");
+    GenericReader<UTF16<>, UTF16<> > reader;
+    EXPECT_TRUE(reader.Parse<kParseInsituFlag | kParseNumbersAsStringsFlag>(s, h));
+    free(json);
+  }
+  {
+    const wchar_t* json = L"{ \"gigabyte\": 1.0e9 } ";
+    GenericStringStream<UTF16<> > s(json);
+    NumbersAsStringsHandlerWChar_t h(L"1.0e9");
+    GenericReader<UTF16<>, UTF16<> > reader;
+    EXPECT_TRUE(reader.Parse<kParseNumbersAsStringsFlag>(s, h));
+  }
+  {
+    wchar_t* json = StrDup(L"{ \"gigabyte\": 1.0e9 } ");
+    GenericInsituStringStream<UTF16<> > s(json);
+    NumbersAsStringsHandlerWChar_t h(L"1.0e9");
+    GenericReader<UTF16<>, UTF16<> > reader;
+    EXPECT_TRUE(reader.Parse<kParseInsituFlag | kParseNumbersAsStringsFlag>(s, h));
+    free(json);
+  }
+  {
+    const wchar_t* json = L"{ \"pi\": 314.159e-2 } ";
+    GenericStringStream<UTF16<> > s(json);
+    NumbersAsStringsHandlerWChar_t h(L"314.159e-2");
+    GenericReader<UTF16<>, UTF16<> > reader;
+    EXPECT_TRUE(reader.Parse<kParseNumbersAsStringsFlag>(s, h));
+  }
+  {
+    wchar_t* json = StrDup(L"{ \"gigabyte\": 314.159e-2 } ");
+    GenericInsituStringStream<UTF16<> > s(json);
+    NumbersAsStringsHandlerWChar_t h(L"314.159e-2");
+    GenericReader<UTF16<>, UTF16<> > reader;
+    EXPECT_TRUE(reader.Parse<kParseInsituFlag | kParseNumbersAsStringsFlag>(s, h));
+    free(json);
+  }
+  {
+    const wchar_t* json = L"{ \"negative\": -1.54321 } ";
+    GenericStringStream<UTF16<> > s(json);
+    NumbersAsStringsHandlerWChar_t h(L"-1.54321");
+    GenericReader<UTF16<>, UTF16<> > reader;
+    EXPECT_TRUE(reader.Parse<kParseNumbersAsStringsFlag>(s, h));
+  }
+  {
+    wchar_t* json = StrDup(L"{ \"negative\": -1.54321 } ");
+    GenericInsituStringStream<UTF16<> > s(json);
+    NumbersAsStringsHandlerWChar_t h(L"-1.54321");
+    GenericReader<UTF16<>, UTF16<> > reader;
+    EXPECT_TRUE(reader.Parse<kParseInsituFlag | kParseNumbersAsStringsFlag>(s, h));
+    free(json);
+  }
+  {
+    const wchar_t* json = L"{ \"pi\": 314.159e-2 } ";
+    std::wstringstream ss(json);
+    WIStreamWrapper s(ss);
+    NumbersAsStringsHandlerWChar_t h(L"314.159e-2");
+    GenericReader<UTF16<>, UTF16<> > reader;
+    EXPECT_TRUE(reader.Parse<kParseNumbersAsStringsFlag>(s, h));
+  }
+  {
+    wchar_t n1e319[321];   // '1' followed by 319 '0'
+    n1e319[0] = L'1';
+    for(int i = 1; i < 320; i++)
+      n1e319[i] = L'0';
+    n1e319[320] = L'\0';
+    GenericStringStream<UTF16<> > s(n1e319);
+    NumbersAsStringsHandlerWChar_t h(n1e319);
+    GenericReader<UTF16<>, UTF16<> > reader;
+    EXPECT_TRUE(reader.Parse<kParseNumbersAsStringsFlag>(s, h));
+  }
+}
+
+template <unsigned extraFlags>
+void TestTrailingCommas() {
+    {
+        StringStream s("[1,2,3,]");
+        ParseArrayHandler<3> h;
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<extraFlags|kParseTrailingCommasFlag>(s, h));
+        EXPECT_EQ(5u, h.step_);
+    }
+    {
+        const char* json = "{ \"hello\" : \"world\", \"t\" : true , \"f\" : false,"
+                "\"n\": null, \"i\":123, \"pi\": 3.1416, \"a\":[1, 2, 3],}";
+        StringStream s(json);
+        ParseObjectHandler h;
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<extraFlags|kParseTrailingCommasFlag>(s, h));
+        EXPECT_EQ(20u, h.step_);
+    }
+    {
+        // whitespace around trailing commas
+        const char* json = "{ \"hello\" : \"world\", \"t\" : true , \"f\" : false,"
+                "\"n\": null, \"i\":123, \"pi\": 3.1416, \"a\":[1, 2, 3\n,\n]\n,\n} ";
+        StringStream s(json);
+        ParseObjectHandler h;
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<extraFlags|kParseTrailingCommasFlag>(s, h));
+        EXPECT_EQ(20u, h.step_);
+    }
+    {
+        // comments around trailing commas
+        const char* json = "{ \"hello\" : \"world\", \"t\" : true , \"f\" : false, \"n\": null,"
+                "\"i\":123, \"pi\": 3.1416, \"a\":[1, 2, 3/*test*/,/*test*/]/*test*/,/*test*/}";
+        StringStream s(json);
+        ParseObjectHandler h;
+        Reader reader;
+        EXPECT_TRUE(reader.Parse<extraFlags|kParseTrailingCommasFlag|kParseCommentsFlag>(s, h));
+        EXPECT_EQ(20u, h.step_);
+    }
+}
+
+TEST(Reader, TrailingCommas) {
+    TestTrailingCommas<kParseNoFlags>();
+}
+
+TEST(Reader, TrailingCommasIterative) {
+    TestTrailingCommas<kParseIterativeFlag>();
+}
+
+template <unsigned extraFlags>
+void TestMultipleTrailingCommaErrors() {
+    // only a single trailing comma is allowed.
+    {
+        StringStream s("[1,2,3,,]");
+        ParseArrayHandler<3> h;
+        Reader reader;
+        ParseResult r = reader.Parse<extraFlags|kParseTrailingCommasFlag>(s, h);
+        EXPECT_TRUE(reader.HasParseError());
+        EXPECT_EQ(kParseErrorValueInvalid, r.Code());
+        EXPECT_EQ(7u, r.Offset());
+    }
+    {
+        const char* json = "{ \"hello\" : \"world\", \"t\" : true , \"f\" : false,"
+                "\"n\": null, \"i\":123, \"pi\": 3.1416, \"a\":[1, 2, 3,],,}";
+        StringStream s(json);
+        ParseObjectHandler h;
+        Reader reader;
+        ParseResult r = reader.Parse<extraFlags|kParseTrailingCommasFlag>(s, h);
+        EXPECT_TRUE(reader.HasParseError());
+        EXPECT_EQ(kParseErrorObjectMissName, r.Code());
+        EXPECT_EQ(95u, r.Offset());
+    }
+}
+
+TEST(Reader, MultipleTrailingCommaErrors) {
+    TestMultipleTrailingCommaErrors<kParseNoFlags>();
+}
+
+TEST(Reader, MultipleTrailingCommaErrorsIterative) {
+    TestMultipleTrailingCommaErrors<kParseIterativeFlag>();
+}
+
+template <unsigned extraFlags>
+void TestEmptyExceptForCommaErrors() {
+    // not allowed even with trailing commas enabled; the
+    // trailing comma must follow a value.
+    {
+        StringStream s("[,]");
+        ParseArrayHandler<3> h;
+        Reader reader;
+        ParseResult r = reader.Parse<extraFlags|kParseTrailingCommasFlag>(s, h);
+        EXPECT_TRUE(reader.HasParseError());
+        EXPECT_EQ(kParseErrorValueInvalid, r.Code());
+        EXPECT_EQ(1u, r.Offset());
+    }
+    {
+        StringStream s("{,}");
+        ParseObjectHandler h;
+        Reader reader;
+        ParseResult r = reader.Parse<extraFlags|kParseTrailingCommasFlag>(s, h);
+        EXPECT_TRUE(reader.HasParseError());
+        EXPECT_EQ(kParseErrorObjectMissName, r.Code());
+        EXPECT_EQ(1u, r.Offset());
+    }
+}
+
+TEST(Reader, EmptyExceptForCommaErrors) {
+    TestEmptyExceptForCommaErrors<kParseNoFlags>();
+}
+
+TEST(Reader, EmptyExceptForCommaErrorsIterative) {
+    TestEmptyExceptForCommaErrors<kParseIterativeFlag>();
+}
+
+template <unsigned extraFlags>
+void TestTrailingCommaHandlerTermination() {
+    {
+        HandlerTerminateAtEndArray h;
+        Reader reader;
+        StringStream s("[1,2,3,]");
+        ParseResult r = reader.Parse<extraFlags|kParseTrailingCommasFlag>(s, h);
+        EXPECT_TRUE(reader.HasParseError());
+        EXPECT_EQ(kParseErrorTermination, r.Code());
+        EXPECT_EQ(7u, r.Offset());
+    }
+    {
+        HandlerTerminateAtEndObject h;
+        Reader reader;
+        StringStream s("{\"t\": true, \"f\": false,}");
+        ParseResult r = reader.Parse<extraFlags|kParseTrailingCommasFlag>(s, h);
+        EXPECT_TRUE(reader.HasParseError());
+        EXPECT_EQ(kParseErrorTermination, r.Code());
+        EXPECT_EQ(23u, r.Offset());
+    }
+}
+
+TEST(Reader, TrailingCommaHandlerTermination) {
+    TestTrailingCommaHandlerTermination<kParseNoFlags>();
+}
+
+TEST(Reader, TrailingCommaHandlerTerminationIterative) {
+    TestTrailingCommaHandlerTermination<kParseIterativeFlag>();
+}
+
+TEST(Reader, ParseNanAndInfinity) {
+#define TEST_NAN_INF(str, x) \
+    { \
+        { \
+            StringStream s(str); \
+            ParseDoubleHandler h; \
+            Reader reader; \
+            ASSERT_EQ(kParseErrorNone, reader.Parse<kParseNanAndInfFlag>(s, h).Code()); \
+            EXPECT_EQ(1u, h.step_); \
+            internal::Double e(x), a(h.actual_); \
+            EXPECT_EQ(e.IsNan(), a.IsNan()); \
+            EXPECT_EQ(e.IsInf(), a.IsInf()); \
+            if (!e.IsNan()) \
+                EXPECT_EQ(e.Sign(), a.Sign()); \
+        } \
+        { \
+            const char* json = "{ \"naninfdouble\": " str " } "; \
+            StringStream s(json); \
+            NumbersAsStringsHandler h(str); \
+            Reader reader; \
+            EXPECT_TRUE(reader.Parse<kParseNumbersAsStringsFlag|kParseNanAndInfFlag>(s, h)); \
+        } \
+        { \
+            char* json = StrDup("{ \"naninfdouble\": " str " } "); \
+            InsituStringStream s(json); \
+            NumbersAsStringsHandler h(str); \
+            Reader reader; \
+            EXPECT_TRUE(reader.Parse<kParseInsituFlag|kParseNumbersAsStringsFlag|kParseNanAndInfFlag>(s, h)); \
+            free(json); \
+        } \
+    }
+#define TEST_NAN_INF_ERROR(errorCode, str, errorOffset) \
+    { \
+        unsigned streamPos = errorOffset; \
+        char buffer[1001]; \
+        strncpy(buffer, str, 1000); \
+        InsituStringStream s(buffer); \
+        BaseReaderHandler<> h; \
+        Reader reader; \
+        EXPECT_FALSE(reader.Parse<kParseNanAndInfFlag>(s, h)); \
+        EXPECT_EQ(errorCode, reader.GetParseErrorCode());\
+        EXPECT_EQ(errorOffset, reader.GetErrorOffset());\
+        EXPECT_EQ(streamPos, s.Tell());\
+    }
+
+    double nan = std::numeric_limits<double>::quiet_NaN();
+    double inf = std::numeric_limits<double>::infinity();
+
+    TEST_NAN_INF("NaN", nan);
+    TEST_NAN_INF("-NaN", nan);
+    TEST_NAN_INF("Inf", inf);
+    TEST_NAN_INF("Infinity", inf);
+    TEST_NAN_INF("-Inf", -inf);
+    TEST_NAN_INF("-Infinity", -inf);
+    TEST_NAN_INF_ERROR(kParseErrorValueInvalid, "NInf", 1u);
+    TEST_NAN_INF_ERROR(kParseErrorValueInvalid, "NaInf", 2u);
+    TEST_NAN_INF_ERROR(kParseErrorValueInvalid, "INan", 1u);
+    TEST_NAN_INF_ERROR(kParseErrorValueInvalid, "InNan", 2u);
+    TEST_NAN_INF_ERROR(kParseErrorValueInvalid, "nan", 1u);
+    TEST_NAN_INF_ERROR(kParseErrorValueInvalid, "-nan", 1u);
+    TEST_NAN_INF_ERROR(kParseErrorValueInvalid, "NAN", 1u);
+    TEST_NAN_INF_ERROR(kParseErrorValueInvalid, "-Infinty", 6u);
+
+#undef TEST_NAN_INF_ERROR
+#undef TEST_NAN_INF
+}
+
+TEST(Reader, EscapedApostrophe) {
+    const char json[] = " { \"foo\": \"bar\\'buzz\" } ";
+
+    BaseReaderHandler<> h;
+
+    {
+        StringStream s(json);
+        Reader reader;
+        ParseResult r = reader.Parse<kParseNoFlags>(s, h);
+        EXPECT_TRUE(reader.HasParseError());
+        EXPECT_EQ(kParseErrorStringEscapeInvalid, r.Code());
+        EXPECT_EQ(14u, r.Offset());
+    }
+
+    {
+        StringStream s(json);
+        Reader reader;
+        ParseResult r = reader.Parse<kParseEscapedApostropheFlag>(s, h);
+        EXPECT_FALSE(reader.HasParseError());
+        EXPECT_EQ(kParseErrorNone, r.Code());
+        EXPECT_EQ(0u, r.Offset());
+    }
+}
+
 RAPIDJSON_DIAG_POP
-#endif

@@ -1,6 +1,6 @@
 // Tencent is pleased to support the open source community by making RapidJSON available.
 // 
-// Copyright (C) 2015 THL A29 Limited, a Tencent company, and Milo Yip. All rights reserved.
+// Copyright (C) 2015 THL A29 Limited, a Tencent company, and Milo Yip.
 //
 // Licensed under the MIT License (the "License"); you may not use this file except
 // in compliance with the License. You may obtain a copy of the License at
@@ -25,6 +25,7 @@ using namespace rapidjson;
 class EncodedStreamTest : public ::testing::Test {
 public:
     EncodedStreamTest() : json_(), length_() {}
+    virtual ~EncodedStreamTest();
 
     virtual void SetUp() {
         json_ = ReadFile("utf8.json", true, &length_);
@@ -42,15 +43,15 @@ private:
 protected:
     static FILE* Open(const char* filename) {
         const char *paths[] = {
-            "encodings/%s",
-            "bin/encodings/%s",
-            "../bin/encodings/%s",
-            "../../bin/encodings/%s",
-            "../../../bin/encodings/%s"
+            "encodings",
+            "bin/encodings",
+            "../bin/encodings",
+            "../../bin/encodings",
+            "../../../bin/encodings"
         };
         char buffer[1024];
         for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
-            sprintf(buffer, paths[i], filename);
+            sprintf(buffer, "%s/%s", paths[i], filename);
             FILE *fp = fopen(buffer, "rb");
             if (fp)
                 return fp;
@@ -67,9 +68,9 @@ protected:
         }
 
         fseek(fp, 0, SEEK_END);
-        *outLength = (size_t)ftell(fp);
+        *outLength = static_cast<size_t>(ftell(fp));
         fseek(fp, 0, SEEK_SET);
-        char* buffer = (char*)malloc(*outLength + 1);
+        char* buffer = static_cast<char*>(malloc(*outLength + 1));
         size_t readLength = fread(buffer, 1, *outLength, fp);
         buffer[readLength] = '\0';
         fclose(fp);
@@ -112,8 +113,8 @@ protected:
                 EXPECT_EQ(expected, actual);
             }
             EXPECT_EQ('\0', s.Peek());
-            free(data);
             EXPECT_EQ(size, eis.Tell());
+            free(data);
         }
     }
 
@@ -247,6 +248,8 @@ protected:
     char *json_;
     size_t length_;
 };
+
+EncodedStreamTest::~EncodedStreamTest() {}
 
 TEST_F(EncodedStreamTest, EncodedInputStream) {
     TestEncodedInputStream<UTF8<>,    UTF8<>  >("utf8.json");
